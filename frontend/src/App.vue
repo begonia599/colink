@@ -64,6 +64,9 @@ const deployCommand = computed(() => {
   return `curl -fsSL https://raw.githubusercontent.com/begonia599/colink/main/scripts/deploy.sh | sudo bash`
 })
 
+// 生成卸载命令
+const uninstallCommand = `curl -fsSL https://raw.githubusercontent.com/begonia599/colink/main/scripts/uninstall.sh | sudo bash`
+
 function selectNode(id: string) {
   const node = nodes.value.find(n => n.id === id)
   if (!isConnected.value && node?.configured) {
@@ -125,6 +128,10 @@ function saveEdit() {
 
 function copyCommand() {
   navigator.clipboard.writeText(deployCommand.value)
+}
+
+function copyUninstallCommand() {
+  navigator.clipboard.writeText(uninstallCommand)
 }
 
 function applyConfig() {
@@ -397,6 +404,17 @@ loadNodes()
           <input v-model="editForm.mode" placeholder="fast3" />
         </div>
       </div>
+
+      <!-- 卸载命令 -->
+      <div class="uninstall-section">
+        <label>卸载节点服务端</label>
+        <div class="command-box">
+          <code>{{ uninstallCommand }}</code>
+          <button class="btn-copy" @click="copyUninstallCommand" title="复制">📋</button>
+        </div>
+        <p class="uninstall-hint">在节点服务器上执行此命令可卸载 KCP 服务</p>
+      </div>
+
       <div class="modal-actions">
         <button class="btn btn-secondary" @click="showEditModal = false">取消</button>
         <button class="btn btn-primary" @click="saveEdit">保存</button>
@@ -533,5 +551,32 @@ loadNodes()
   outline: none;
   border-color: #3b82f6;
   background: rgba(0, 0, 0, 0.4);
+}
+
+.uninstall-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.uninstall-section label {
+  display: block;
+  font-size: 13px;
+  color: #a1a1aa;
+  margin-bottom: 8px;
+}
+
+.uninstall-section .command-box {
+  margin-bottom: 6px;
+}
+
+.uninstall-section .command-box code {
+  color: #f87171;
+}
+
+.uninstall-hint {
+  font-size: 12px;
+  color: #71717a;
+  margin: 0;
 }
 </style>

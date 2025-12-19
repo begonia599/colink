@@ -53,9 +53,15 @@ generate_key() {
 
 # 让用户选择端口
 choose_port() {
-    echo ""
-    echo -e "${CYAN}请输入要使用的端口号 (直接回车使用随机端口):${NC}"
-    read -p "> " USER_PORT
+    # 如果通过参数传入端口
+    if [[ -n "$1" ]]; then
+        USER_PORT=$1
+    else
+        # 尝试交互式输入，如果失败则使用随机端口
+        echo ""
+        echo -e "${CYAN}请输入要使用的端口号 (直接回车使用随机端口):${NC}"
+        read -t 10 -p "> " USER_PORT </dev/tty 2>/dev/null || USER_PORT=""
+    fi
     
     if [[ -z "$USER_PORT" ]]; then
         # 随机生成端口 (20000-30000)
@@ -200,7 +206,7 @@ main() {
     detect_arch
     get_public_ip
     generate_key
-    choose_port
+    choose_port "$1"
     download_kcptun
     configure_firewall
     create_service
