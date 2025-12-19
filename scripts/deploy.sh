@@ -51,37 +51,13 @@ generate_key() {
     log_info "生成密钥: $KEY"
 }
 
-# 让用户选择端口
+# 生成随机端口
 choose_port() {
-    # 如果通过参数传入端口
-    if [[ -n "$1" ]]; then
-        USER_PORT=$1
-    else
-        # 尝试交互式输入，如果失败则使用随机端口
-        echo ""
-        echo -e "${CYAN}请输入要使用的端口号 (直接回车使用随机端口):${NC}"
-        read -t 10 -p "> " USER_PORT </dev/tty 2>/dev/null || USER_PORT=""
-    fi
-    
-    if [[ -z "$USER_PORT" ]]; then
-        # 随机生成端口 (20000-30000)
+    PORT=$((RANDOM % 10000 + 20000))
+    while netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; do
         PORT=$((RANDOM % 10000 + 20000))
-        while netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; do
-            PORT=$((RANDOM % 10000 + 20000))
-        done
-        log_info "使用随机端口: $PORT"
-    else
-        # 验证用户输入的端口
-        if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]] || [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
-            log_error "无效端口号，请输入 1024-65535 之间的数字"
-        fi
-        # 检查端口是否被占用
-        if netstat -tuln 2>/dev/null | grep -q ":$USER_PORT " || ss -tuln 2>/dev/null | grep -q ":$USER_PORT "; then
-            log_error "端口 $USER_PORT 已被占用"
-        fi
-        PORT=$USER_PORT
-        log_info "使用指定端口: $PORT"
-    fi
+    done
+    log_info "使用端口: $PORT"
 }
 
 # 获取公网 IP (强制 IPv4)
@@ -206,7 +182,7 @@ main() {
     detect_arch
     get_public_ip
     generate_key
-    choose_port "$1"
+    choose_port
     download_kcptun
     configure_firewall
     create_service
