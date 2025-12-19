@@ -18,6 +18,7 @@ PARITYSHARD="3"
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -50,14 +51,31 @@ generate_key() {
     log_info "生成密钥: $KEY"
 }
 
-# 生成随机端口 (20000-30000)
-generate_port() {
-    PORT=$((RANDOM % 10000 + 20000))
-    # 检查端口是否被占用
-    while netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; do
+# 让用户选择端口
+choose_port() {
+    echo ""
+    echo -e "${CYAN}请输入要使用的端口号 (直接回车使用随机端口):${NC}"
+    read -p "> " USER_PORT
+    
+    if [[ -z "$USER_PORT" ]]; then
+        # 随机生成端口 (20000-30000)
         PORT=$((RANDOM % 10000 + 20000))
-    done
-    log_info "使用端口: $PORT"
+        while netstat -tuln 2>/dev/null | grep -q ":$PORT " || ss -tuln 2>/dev/null | grep -q ":$PORT "; do
+            PORT=$((RANDOM % 10000 + 20000))
+        done
+        log_info "使用随机端口: $PORT"
+    else
+        # 验证用户输入的端口
+        if ! [[ "$USER_PORT" =~ ^[0-9]+$ ]] || [ "$USER_PORT" -lt 1024 ] || [ "$USER_PORT" -gt 65535 ]; then
+            log_error "无效端口号，请输入 1024-65535 之间的数字"
+        fi
+        # 检查端口是否被占用
+        if netstat -tuln 2>/dev/null | grep -q ":$USER_PORT " || ss -tuln 2>/dev/null | grep -q ":$USER_PORT "; then
+            log_error "端口 $USER_PORT 已被占用"
+        fi
+        PORT=$USER_PORT
+        log_info "使用指定端口: $PORT"
+    fi
 }
 
 # 获取公网 IP (强制 IPv4)
@@ -69,9 +87,16 @@ get_public_ip() {
     log_info "公网 IP: $PUBLIC_IP"
 }
 
-# 下载 kcptun
+# 下载 kcptun (自动获取最新版本)
 download_kcptun() {
-    KCPTUN_VERSION="20241119"
+    log_info "获取最新版本..."
+    KCPTUN_VERSION=$(curl -s https://api.github.com/repos/xtaci/kcptun/releases/latest | grep -oP '"tag_name": "v\K[^"]+')
+    
+    if [[ -z "$KCPTUN_VERSION" ]]; then
+        log_error "无法获取 kcptun 最新版本"
+    fi
+    
+    log_info "最新版本: $KCPTUN_VERSION"
     DOWNLOAD_URL="https://github.com/xtaci/kcptun/releases/download/v${KCPTUN_VERSION}/kcptun-${OS}-${ARCH}-${KCPTUN_VERSION}.tar.gz"
     
     log_info "下载 kcptun..."
@@ -92,25 +117,14 @@ download_kcptun() {
     log_info "kcptun 安装到 $INSTALL_DIR/kcptun-server"
 }
 
-# 配置防火墙
+# 配置防火墙 (仅 ufw)
 configure_firewall() {
-    log_info "配置防火墙..."
-    
-    # ufw (Ubuntu/Debian)
     if command -v ufw &> /dev/null; then
+        log_info "检测到 ufw，配置防火墙..."
         ufw allow $PORT/udp >/dev/null 2>&1 && log_info "ufw: 已开放 UDP $PORT"
-    fi
-    
-    # firewalld (CentOS/RHEL)
-    if command -v firewall-cmd &> /dev/null; then
-        firewall-cmd --permanent --add-port=$PORT/udp >/dev/null 2>&1
-        firewall-cmd --reload >/dev/null 2>&1 && log_info "firewalld: 已开放 UDP $PORT"
-    fi
-    
-    # iptables
-    if command -v iptables &> /dev/null; then
-        iptables -C INPUT -p udp --dport $PORT -j ACCEPT 2>/dev/null || \
-        iptables -I INPUT -p udp --dport $PORT -j ACCEPT 2>/dev/null && log_info "iptables: 已开放 UDP $PORT"
+    else
+        log_warn "未检测到 ufw，跳过防火墙配置"
+        log_warn "请手动开放 UDP 端口 $PORT"
     fi
 }
 
@@ -125,18 +139,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/colink/kcptun-server \\
-    -t "$TARGET_SERVER" \\
-    -l ":$PORT" \\
-    -key "$KEY" \\
-    -crypt "$CRYPT" \\
-    -mode "$MODE" \\
-    -mtu "$MTU" \\
-    -sndwnd "$SNDWND" \\
-    -rcvwnd "$RCVWND" \\
-    -datashard "$DATASHARD" \\
-    -parityshard "$PARITYSHARD" \\
-    -nocomp
+ExecStart=/opt/colink/kcptun-server -t "$TARGET_SERVER" -l ":$PORT" -key "$KEY" -crypt "$CRYPT" -mode "$MODE" -mtu "$MTU" -sndwnd "$SNDWND" -rcvwnd "$RCVWND" -datashard "$DATASHARD" -parityshard "$PARITYSHARD" -nocomp
 Restart=always
 RestartSec=3
 
@@ -175,6 +178,9 @@ output_config() {
 EOF
     echo ""
     echo "=========================================="
+    if ! command -v ufw &> /dev/null; then
+        echo -e "${YELLOW}提示: 请确保已在云服务商安全组中开放 UDP $PORT${NC}"
+    fi
 }
 
 # 主流程
@@ -194,7 +200,7 @@ main() {
     detect_arch
     get_public_ip
     generate_key
-    generate_port
+    choose_port
     download_kcptun
     configure_firewall
     create_service

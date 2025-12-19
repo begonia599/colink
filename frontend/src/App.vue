@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { ref, computed } from 'vue'
+import { Connect, Disconnect } from '../wailsjs/go/main/App'
 
 interface Node {
   id: string
@@ -18,17 +19,32 @@ const nodes = ref<Node[]>([])
 const selectedNodeId = ref<string | null>(null)
 const isConnected = ref(false)
 const isConnecting = ref(false)
+const connectionError = ref('')
+const connectedLocalPort = ref(0)
 
 // 弹窗状态
 const showAddModal = ref(false)
 const showConfigModal = ref(false)
+const showEditModal = ref(false)
 const configNodeId = ref<string | null>(null)
+const editNodeId = ref<string | null>(null)
 
 // 新节点名称
 const newNodeName = ref('')
 
 // 配置粘贴内容
 const configPasteContent = ref('')
+
+// 编辑表单
+const editForm = ref({
+  name: '',
+  server: '',
+  port: 0,
+  key: '',
+  crypt: '',
+  mode: '',
+  localPort: 25565
+})
 
 const selectedNode = computed(() => {
   return nodes.value.find(n => n.id === selectedNodeId.value)
@@ -38,11 +54,14 @@ const configNode = computed(() => {
   return nodes.value.find(n => n.id === configNodeId.value)
 })
 
+const editNode = computed(() => {
+  return nodes.value.find(n => n.id === editNodeId.value)
+})
+
 // 生成部署命令
 const deployCommand = computed(() => {
   if (!configNode.value) return ''
-  // TODO: 后续替换成真实的脚本地址
-  return `curl -fsSL https://your-domain.com/deploy.sh | bash -s -- --id=${configNode.value.id}`
+  return `curl -fsSL https://raw.githubusercontent.com/begonia599/colink/main/scripts/deploy.sh | sudo bash`
 })
 
 function selectNode(id: string) {
@@ -70,6 +89,38 @@ function openConfigModal(id: string) {
   configNodeId.value = id
   configPasteContent.value = ''
   showConfigModal.value = true
+}
+
+function openEditModal(id: string) {
+  const node = nodes.value.find(n => n.id === id)
+  if (node) {
+    editNodeId.value = id
+    editForm.value = {
+      name: node.name,
+      server: node.server || '',
+      port: node.port || 0,
+      key: node.key || '',
+      crypt: node.crypt || 'aes-128',
+      mode: node.mode || 'fast3',
+      localPort: node.localPort || 25565
+    }
+    showEditModal.value = true
+  }
+}
+
+function saveEdit() {
+  const node = nodes.value.find(n => n.id === editNodeId.value)
+  if (node) {
+    node.name = editForm.value.name
+    node.server = editForm.value.server
+    node.port = editForm.value.port
+    node.key = editForm.value.key
+    node.crypt = editForm.value.crypt
+    node.mode = editForm.value.mode
+    node.localPort = editForm.value.localPort
+    saveNodes()
+  }
+  showEditModal.value = false
 }
 
 function copyCommand() {
@@ -110,14 +161,39 @@ function deleteNode(id: string) {
 
 async function toggleConnection() {
   if (isConnected.value) {
-    isConnected.value = false
+    // 断开连接
+    try {
+      await Disconnect()
+      isConnected.value = false
+      connectionError.value = ''
+      connectedLocalPort.value = 0
+    } catch (e: any) {
+      connectionError.value = e.message || '断开失败'
+    }
   } else if (selectedNode.value) {
+    // 连接
     isConnecting.value = true
-    // TODO: 调用后端连接方法
-    setTimeout(() => {
-      isConnected.value = true
+    connectionError.value = ''
+    try {
+      const result = await Connect({
+        server: selectedNode.value.server || '',
+        port: selectedNode.value.port || 0,
+        key: selectedNode.value.key || '',
+        crypt: selectedNode.value.crypt || 'aes-128',
+        mode: selectedNode.value.mode || 'fast3',
+        localPort: selectedNode.value.localPort || 25565
+      })
+      if (result.connected) {
+        isConnected.value = true
+        connectedLocalPort.value = result.localPort
+      } else {
+        connectionError.value = result.error || '连接失败'
+      }
+    } catch (e: any) {
+      connectionError.value = e.message || '连接失败'
+    } finally {
       isConnecting.value = false
-    }, 1000)
+    }
   }
 }
 
@@ -148,7 +224,8 @@ loadNodes()
         <div class="status-text">
           <span class="label">状态:</span>
           <span v-if="isConnecting">连接中...</span>
-          <span v-else-if="isConnected">已连接 - {{ selectedNode?.name }}</span>
+          <span v-else-if="isConnected">已连接 - {{ selectedNode?.name }} (本地端口: {{ connectedLocalPort }})</span>
+          <span v-else-if="connectionError" style="color: #ef4444;">{{ connectionError }}</span>
           <span v-else>未连接</span>
         </div>
       </div>
@@ -198,6 +275,14 @@ loadNodes()
               title="配置节点"
             >
               ⬇️
+            </button>
+            <button 
+              v-if="node.configured" 
+              class="btn-icon edit" 
+              @click="openEditModal(node.id)"
+              title="编辑节点"
+            >
+              ✏️
             </button>
             <button 
               class="btn-icon delete" 
@@ -275,6 +360,49 @@ loadNodes()
       </div>
     </div>
   </div>
+
+  <!-- 编辑节点模态框 -->
+  <div class="modal-overlay" v-if="showEditModal" @click.self="showEditModal = false">
+    <div class="modal">
+      <h3>编辑节点</h3>
+      <div class="form-group">
+        <label>节点名称</label>
+        <input v-model="editForm.name" placeholder="节点名称" />
+      </div>
+      <div class="form-group">
+        <label>服务器地址</label>
+        <input v-model="editForm.server" placeholder="服务器 IP 或域名" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>远程端口</label>
+          <input v-model.number="editForm.port" type="number" />
+        </div>
+        <div class="form-group">
+          <label>本地端口</label>
+          <input v-model.number="editForm.localPort" type="number" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>密钥</label>
+        <input v-model="editForm.key" placeholder="KCP 加密密钥" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>加密方式</label>
+          <input v-model="editForm.crypt" placeholder="aes-128" />
+        </div>
+        <div class="form-group">
+          <label>模式</label>
+          <input v-model="editForm.mode" placeholder="fast3" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" @click="showEditModal = false">取消</button>
+        <button class="btn btn-primary" @click="saveEdit">保存</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -299,6 +427,24 @@ loadNodes()
 
 .btn-icon.config:hover {
   background: rgba(59, 130, 246, 0.3);
+}
+
+.btn-icon.edit {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.btn-icon.edit:hover {
+  background: rgba(34, 197, 94, 0.3);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group {
+  flex: 1;
 }
 
 .modal-small {
