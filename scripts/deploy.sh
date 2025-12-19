@@ -92,6 +92,28 @@ download_kcptun() {
     log_info "kcptun 安装到 $INSTALL_DIR/kcptun-server"
 }
 
+# 配置防火墙
+configure_firewall() {
+    log_info "配置防火墙..."
+    
+    # ufw (Ubuntu/Debian)
+    if command -v ufw &> /dev/null; then
+        ufw allow $PORT/udp >/dev/null 2>&1 && log_info "ufw: 已开放 UDP $PORT"
+    fi
+    
+    # firewalld (CentOS/RHEL)
+    if command -v firewall-cmd &> /dev/null; then
+        firewall-cmd --permanent --add-port=$PORT/udp >/dev/null 2>&1
+        firewall-cmd --reload >/dev/null 2>&1 && log_info "firewalld: 已开放 UDP $PORT"
+    fi
+    
+    # iptables
+    if command -v iptables &> /dev/null; then
+        iptables -C INPUT -p udp --dport $PORT -j ACCEPT 2>/dev/null || \
+        iptables -I INPUT -p udp --dport $PORT -j ACCEPT 2>/dev/null && log_info "iptables: 已开放 UDP $PORT"
+    fi
+}
+
 # 创建 systemd 服务
 create_service() {
     log_info "创建 systemd 服务..."
@@ -174,6 +196,7 @@ main() {
     generate_key
     generate_port
     download_kcptun
+    configure_firewall
     create_service
     output_config
 }
