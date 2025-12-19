@@ -60,9 +60,9 @@ generate_port() {
     log_info "使用端口: $PORT"
 }
 
-# 获取公网 IP
+# 获取公网 IP (强制 IPv4)
 get_public_ip() {
-    PUBLIC_IP=$(curl -s --max-time 5 ifconfig.me || curl -s --max-time 5 ipinfo.io/ip || curl -s --max-time 5 icanhazip.com)
+    PUBLIC_IP=$(curl -4 -s --max-time 5 ifconfig.me || curl -4 -s --max-time 5 ipinfo.io/ip || curl -4 -s --max-time 5 icanhazip.com)
     if [[ -z "$PUBLIC_IP" ]]; then
         log_error "无法获取公网 IP"
     fi
